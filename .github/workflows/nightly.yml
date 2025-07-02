@@ -1,9 +1,5 @@
 on:
-  push:
-    branches:
-      - beta
-    paths-ignore:
-      - '**.md'
+  workflow_dispatch
 
 name: Nightly release
 
