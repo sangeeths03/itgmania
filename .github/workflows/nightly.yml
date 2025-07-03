@@ -1,7 +1,7 @@
 on:
   workflow_dispatch
 
-name: Debug macOS Packaging (Intel + M1)
+name: Nightly release (macOS only)
 
 jobs:
   build:
@@ -16,9 +16,8 @@ jobs:
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
             release: |
-              echo "🔨 Starting release build for macOS ARM64 (M1)..."
               cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_CLUB_FANTASTIC=Off
-              cmake --build build --target package -- -v
+              cmake --build build --target package
             path: build/ITGmania-*-NIGHTLY-git-*-macOS-M1-no-songs.dmg
           - os: macos-13
             name: macOS (Intel)
@@ -26,42 +25,30 @@ jobs:
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
             release: |
-              echo "🔨 Starting release build for macOS Intel..."
               cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
-              cmake --build build --target package -- -v
+              cmake --build build --target package
             path: build/ITGmania-*-NIGHTLY-git-*-macOS-Intel-no-songs.dmg
-
     name: ${{ matrix.name }}
     steps:
-      - name: 📥 Checkout repository with submodules
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: 📦 Install dependencies
+      - name: Cache CMake build directory
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/*
+            !${{ matrix.path }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.arch }}-cmake-build-
+      - name: Install dependencies
         run: ${{ matrix.install }}
-
-      - name: ⚙️ Configure project for ${{ matrix.arch }}
+      - name: Configure
         run: ${{ matrix.configure }}
-
-      - name: 🧹 macOS-13 pre-cleanup (detach stale volumes)
-        if: matrix.os == 'macos-13'
-        run: |
-          echo "🔧 Cleaning up any stale mounted volumes..."
-          MOUNTED=$(hdiutil info | grep /Volumes | awk '{$1=$1};1' | cut -f1)
-          for VOL in $MOUNTED; do
-            echo "⏏️ Attempting to detach: $VOL"
-            hdiutil detach "$VOL" || true
-          done
-
-          echo "🧽 Removing any leftover temp.dmg..."
-          find build -name "temp.dmg" -delete || true
-          echo "✅ Cleanup complete."
-
-      - name: 🚀 Build and package nightly release
+      - name: Create nightly release
         run: ${{ matrix.release }}
-
-      - name: 📤 Upload packaged build
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ITGmania-${{ github.sha }}-${{ matrix.name }}-${{ matrix.arch }}
