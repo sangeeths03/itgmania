@@ -19,6 +19,7 @@ jobs:
               cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_CLUB_FANTASTIC=Off
               cmake --build build --target package
             path: build/ITGmania-*-NIGHTLY-git-*-macOS-M1-no-songs.dmg
+
           - os: macos-13
             name: macOS (Intel)
             arch: x86_64
@@ -28,11 +29,13 @@ jobs:
               cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
               cmake --build build --target package
             path: build/ITGmania-*-NIGHTLY-git-*-macOS-Intel-no-songs.dmg
+
     name: ${{ matrix.name }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
       - name: Cache CMake build directory
         uses: actions/cache@v4
         with:
@@ -42,12 +45,25 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.arch }}-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.arch }}-cmake-build-
+
       - name: Install dependencies
         run: ${{ matrix.install }}
+
       - name: Configure
         run: ${{ matrix.configure }}
+
+      # ✅ Added workaround to prevent resource busy errors with hdiutil
+      - name: Workaround for hdiutil resource busy
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          echo "Cleaning up mounted volumes and any leftover temp.dmg..."
+          hdiutil info | grep /Volumes || true
+          hdiutil detach /Volumes/ITGmania* || true
+          rm -f build/_CPack_Packages/macOS-Intel/DragNDrop/temp.dmg || true
+
       - name: Create nightly release
         run: ${{ matrix.release }}
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
