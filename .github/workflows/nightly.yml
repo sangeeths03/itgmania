@@ -15,9 +15,7 @@ jobs:
             arch: arm64
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
-            release: |
-              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_CLUB_FANTASTIC=Off
-              cmake --build build --target package
+            release_flags: -DCMAKE_OSX_ARCHITECTURES=arm64
             path: build/ITGmania-*-NIGHTLY-git-*-macOS-M1-no-songs.dmg
 
           - os: macos-13
@@ -25,9 +23,7 @@ jobs:
             arch: x86_64
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
-            release: |
-              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
-              cmake --build build --target package
+            release_flags: -DCMAKE_OSX_ARCHITECTURES=x86_64
             path: build/ITGmania-*-NIGHTLY-git-*-macOS-Intel-no-songs.dmg
 
     name: ${{ matrix.name }}
@@ -52,17 +48,31 @@ jobs:
       - name: Configure
         run: ${{ matrix.configure }}
 
-      # ✅ Added workaround to prevent resource busy errors with hdiutil
-      - name: Workaround for hdiutil resource busy
+      - name: Cleanup mounted volumes and temp.dmg
         if: startsWith(matrix.os, 'macos')
         run: |
-          echo "Cleaning up mounted volumes and any leftover temp.dmg..."
-          hdiutil info | grep /Volumes || true
-          hdiutil detach /Volumes/ITGmania* || true
-          rm -f build/_CPack_Packages/macOS-Intel/DragNDrop/temp.dmg || true
+          echo "Unmounting any lingering DMG volumes..."
+          for vol in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
+            echo "Detaching $vol"
+            hdiutil detach "$vol" -force || true
+          done
+          echo "Cleaning old temp.dmg files..."
+          find build/_CPack_Packages -type f -name 'temp.dmg' -delete || true
+
+      - name: Wait briefly to avoid hdiutil conflicts
+        if: startsWith(matrix.os, 'macos')
+        run: sleep 3
 
       - name: Create nightly release
-        run: ${{ matrix.release }}
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DWITH_FULL_RELEASE=Off \
+            -DWITH_NIGHTLY_RELEASE=On \
+            -DWITH_CLUB_FANTASTIC=Off \
+            -DCPACK_DMG_VOLUME_NAME="ITGmania_${{ matrix.os }}_${{ github.sha }}" \
+            ${{ matrix.release_flags }}
+          cmake --build build --target package
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
