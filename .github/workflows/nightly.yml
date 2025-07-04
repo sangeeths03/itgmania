@@ -3,6 +3,10 @@ on:
 
 name: Nightly release (macOS only)
 
+concurrency:
+  group: nightly-release-macos
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -15,27 +19,12 @@ jobs:
             arch: arm64
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
-            release: |
-              cmake -B build -DCMAKE_BUILD_TYPE=Release \
-                -DWITH_FULL_RELEASE=Off \
-                -DWITH_NIGHTLY_RELEASE=On \
-                -DCMAKE_OSX_ARCHITECTURES=arm64 \
-                -DWITH_CLUB_FANTASTIC=Off
-              cmake --build build --target package
             path: build/*.dmg
-
           - os: macos-13
             name: macOS (Intel)
             arch: x86_64
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
-            release: |
-              cmake -B build -DCMAKE_BUILD_TYPE=Release \
-                -DWITH_FULL_RELEASE=Off \
-                -DWITH_NIGHTLY_RELEASE=On \
-                -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-                -DWITH_CLUB_FANTASTIC=Off
-              cmake --build build --target package
             path: build/*.dmg
 
     name: ${{ matrix.name }}
@@ -60,6 +49,17 @@ jobs:
       - name: Configure
         run: ${{ matrix.configure }}
 
+      - name: Inject .metadata_never_index (prevent Spotlight indexing)
+        run: |
+          mkdir -p build/tmp_bundle/Contents
+          touch build/tmp_bundle/.metadata_never_index || true
+
+      - name: Disable Spotlight (best effort)
+        continue-on-error: true
+        run: |
+          sudo mdutil -i off / || true
+          sudo mdutil -E / || true
+
       - name: 🧹 Cleanup for macOS 13 runners
         if: matrix.os == 'macos-13'
         run: |
@@ -76,7 +76,6 @@ jobs:
             sleep 2
           done
           echo "🗑️ Removing leftover DMGs and Finder metadata"
-          rm -f build/_CPack_Packages/macOS-Intel/DragNDrop/temp.dmg || true
           find build/_CPack_Packages -name '*.dmg' -delete || true
           find build/_CPack_Packages -name '.DS_Store' -delete || true
           find build/_CPack_Packages -name '._*' -delete || true
@@ -86,12 +85,12 @@ jobs:
             echo "→ Killing PID $pid"
             sudo kill -9 "$pid" || true
           done
-          echo "⏱️ Waiting 5s for cleanup to settle"
-          sleep 5
+          echo "⏱️ Waiting 10s for cleanup to settle"
+          sleep 10
 
       - name: Sleep before packaging (macOS-13 only)
         if: matrix.os == 'macos-13'
-        run: sleep 10
+        run: sleep 15
 
       - name: Create nightly release (with fallback retry)
         run: |
@@ -99,6 +98,7 @@ jobs:
           cmake --build build --target package || (
             echo "❗ Initial packaging failed. Retrying after clean..."
             sleep 5
+            find build/_CPack_Packages -type f -name "*.dmg" -delete || true
             cmake --build build --target package
           )
 
