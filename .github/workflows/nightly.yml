@@ -51,26 +51,38 @@ jobs:
       - name: Configure
         run: ${{ matrix.configure }}
 
-      - name: 🧹 Pre-build cleanup (volumes, DMGs, processes)
-        if: startsWith(matrix.os, 'macos')
+      - name: 🧹 Cleanup (macOS 13 only)
+        if: matrix.os == 'macos-13'
         run: |
           echo "🧼 Mounted Volumes:"
           mount | grep /Volumes || true
-          echo "📦 DMG mounts:"
-          hdiutil info | grep /Volumes || true
 
-          echo "💥 Force detach all mounted volumes (if any)"
-          for M in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
-            hdiutil detach "$M" -force || sudo umount -f "$M" || true
+          echo "📦 hdiutil info:"
+          hdiutil info || true
+
+          echo "💥 Detaching mounted volumes (up to 3 attempts)"
+          for attempt in 1 2 3; do
+            echo "Attempt $attempt..."
+            for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
+              echo "Detaching $dev"
+              hdiutil detach "$dev" -force || sudo umount -f "$dev" || true
+            done
+            sleep 2
           done
 
-          echo "🗑️ Clean up any lingering DMGs"
-          find build/_CPack_Packages -type f -name '*.dmg' -delete || true
+          echo "🗑️ Removing lingering DMGs and macOS artifacts"
+          rm -f build/_CPack_Packages/macOS-Intel/DragNDrop/temp.dmg || true
+          find build/_CPack_Packages -name '.DS_Store' -delete || true
+          find build/_CPack_Packages -name '._*' -delete || true
 
-          echo "🔒 Kill any processes holding Build/"
-          lsof +D ./build | awk '{print $2}' | tail -n +2 | sort -u | xargs --no-run-if-empty sudo kill -9 || true
+          echo "🔒 Killing processes holding files in build/"
+          PIDS=$(lsof +D ./build | awk 'NR>1 {print $2}' | sort -u)
+          for pid in $PIDS; do
+            echo "Killing PID $pid"
+            sudo kill -9 "$pid" || true
+          done
 
-          echo "⏱️ Sleeping to allow system cleanup"
+          echo "⏱️ Waiting briefly for system to settle"
           sleep 5
 
       - name: Create nightly release
