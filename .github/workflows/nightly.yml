@@ -16,9 +16,13 @@ jobs:
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
             release: |
-              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_CLUB_FANTASTIC=Off
+              cmake -B build -DCMAKE_BUILD_TYPE=Release \
+                -DWITH_FULL_RELEASE=Off \
+                -DWITH_NIGHTLY_RELEASE=On \
+                -DCMAKE_OSX_ARCHITECTURES=arm64 \
+                -DWITH_CLUB_FANTASTIC=Off
               cmake --build build --target package
-            path: build/ITGmania-*-NIGHTLY-git-*-macOS-M1-no-songs.dmg
+            path: build/*.dmg
 
           - os: macos-13
             name: macOS (Intel)
@@ -26,9 +30,13 @@ jobs:
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
             release: |
-              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
+              cmake -B build -DCMAKE_BUILD_TYPE=Release \
+                -DWITH_FULL_RELEASE=Off \
+                -DWITH_NIGHTLY_RELEASE=On \
+                -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+                -DWITH_CLUB_FANTASTIC=Off
               cmake --build build --target package
-            path: build/ITGmania-*-NIGHTLY-git-*-macOS-Intel-no-songs.dmg
+            path: build/*.dmg
 
     name: ${{ matrix.name }}
     steps:
@@ -57,10 +65,8 @@ jobs:
         run: |
           echo "🔍 Mounted Volumes:"
           mount | grep /Volumes || true
-
           echo "📦 DMG Devices:"
           hdiutil info | grep /dev/ || true
-
           echo "💥 Attempting to detach mounted DMG volumes (up to 3 attempts)"
           for i in 1 2 3; do
             for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
@@ -69,20 +75,17 @@ jobs:
             done
             sleep 2
           done
-
           echo "🗑️ Removing leftover DMGs and Finder metadata"
           rm -f build/_CPack_Packages/macOS-Intel/DragNDrop/temp.dmg || true
           find build/_CPack_Packages -name '*.dmg' -delete || true
           find build/_CPack_Packages -name '.DS_Store' -delete || true
           find build/_CPack_Packages -name '._*' -delete || true
-
           echo "🔒 Killing any processes holding files in build/"
           PIDS=$(lsof +D ./build | awk 'NR>1 {print $2}' | sort -u)
           for pid in $PIDS; do
             echo "→ Killing PID $pid"
             sudo kill -9 "$pid" || true
           done
-
           echo "⏱️ Waiting 5s for cleanup to settle"
           sleep 5
 
