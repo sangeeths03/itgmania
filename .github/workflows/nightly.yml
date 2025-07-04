@@ -52,19 +52,21 @@ jobs:
         run: |
           mkdir -p build/tmp_bundle/Contents
           touch build/tmp_bundle/.metadata_never_index || true
+          
       - name: Disable Spotlight (best effort)
         continue-on-error: true
         run: |
           sudo mdutil -i off / || true
           sudo mdutil -E / || true
-      - name: :broom: Cleanup for macOS 13 runners
+          
+      - name: 🧹 Cleanup for macOS 13 runners
         if: matrix.os == 'macos-13'
         run: |
-          echo ":mag: Mounted Volumes:"
+          echo "🔍 Mounted Volumes:"
           mount | grep /Volumes || true
-          echo ":package: DMG Devices:"
+          echo "📦 DMG Devices:"
           hdiutil info | grep /dev/ || true
-          echo ":boom: Attempting to detach mounted DMG volumes (up to 3 attempts)"
+          echo "💥 Attempting to detach mounted DMG volumes (up to 3 attempts)"
           for i in 1 2 3; do
             for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
               echo "→ Detaching $dev"
@@ -72,31 +74,33 @@ jobs:
             done
             sleep 2
           done
-          echo ":wastebasket: Removing leftover DMGs and Finder metadata"
+          echo "🗑️ Removing leftover DMGs and Finder metadata"
           find build/_CPack_Packages -name '*.dmg' -delete || true
           find build/_CPack_Packages -name '.DS_Store' -delete || true
           find build/_CPack_Packages -name '._*' -delete || true
-          echo ":lock: Killing any processes holding files in build/"
+          echo "🔒 Killing any processes holding files in build/"
           PIDS=$(lsof +D ./build | awk 'NR>1 {print $2}' | sort -u)
           for pid in $PIDS; do
             echo "→ Killing PID $pid"
             sudo kill -9 "$pid" || true
           done
-          echo ":stopwatch: Waiting 10s for cleanup to settle"
+          echo "⏱️ Waiting 10s for cleanup to settle"
           sleep 10
+          
       - name: Sleep before packaging (macOS-13 only)
         if: matrix.os == 'macos-13'
         run: sleep 15
 
       - name: Create nightly release (with fallback retry)
         run: |
-          echo ":building_construction: Attempting to build package"
+          echo "🏗️ Attempting to build package"
           cmake --build build --target package || (
-            echo ":exclamation: Initial packaging failed. Retrying after clean..."
+            echo "❗ Initial packaging failed. Retrying after clean..."
             sleep 5
             find build/_CPack_Packages -type f -name "*.dmg" -delete || true
             cmake --build build --target package
           )
+          
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
