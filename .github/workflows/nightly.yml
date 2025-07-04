@@ -1,5 +1,5 @@
 on:
-  workflow_dispatch
+  workflow_dispatch:
 
 name: Nightly release (macOS only)
 
@@ -71,7 +71,7 @@ jobs:
           for i in 1 2 3; do
             for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
               echo "→ Detaching $dev"
-              hdiutil detach "$dev" -force || sudo umount -f "$dev" || true
+              hdiutil detach "$dev" -force || diskutil unmount force "$dev" || sudo umount -f "$dev" || true
             done
             sleep 2
           done
@@ -89,12 +89,16 @@ jobs:
           echo "⏱️ Waiting 5s for cleanup to settle"
           sleep 5
 
+      - name: Sleep before packaging (macOS-13 only)
+        if: matrix.os == 'macos-13'
+        run: sleep 10
+
       - name: Create nightly release (with fallback retry)
         run: |
           echo "🏗️ Attempting to build package"
           cmake --build build --target package || (
             echo "❗ Initial packaging failed. Retrying after clean..."
-            sleep 3
+            sleep 5
             cmake --build build --target package
           )
 
