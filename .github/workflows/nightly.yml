@@ -3,10 +3,6 @@ on:
 
 name: Nightly release (macOS only)
 
-# concurrency:
-#   group: nightly-release-macos
-#   cancel-in-progress: false
-
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -20,6 +16,7 @@ jobs:
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
             path: build/*.dmg
+
           - os: macos-13
             name: macOS (Intel)
             arch: x86_64
@@ -28,20 +25,22 @@ jobs:
             path: build/*.dmg
 
     name: ${{ matrix.name }}
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Cache CMake build directory
+      - name: Cache CMake build
         uses: actions/cache@v4
         with:
           path: |
             build/*
             !${{ matrix.path }}
-          key: ${{ runner.os }}-${{ matrix.arch }}-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-cmake-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-cmake-build-
+            ${{ runner.os }}-${{ matrix.arch }}-cmake-
 
       - name: Install dependencies
         run: ${{ matrix.install }}
@@ -53,21 +52,23 @@ jobs:
         run: |
           mkdir -p build/tmp_bundle/Contents
           touch build/tmp_bundle/.metadata_never_index || true
-          
-      - name: Disable Spotlight (best effort)
+
+      - name: Disable Spotlight (best-effort)
         continue-on-error: true
         run: |
           sudo mdutil -i off / || true
           sudo mdutil -E / || true
-          
-      - name: 🧹 Cleanup for macOS 13 runners
+
+      - name: macOS-13 cleanup (detach DMGs, kill processes, delete temp files)
         if: matrix.os == 'macos-13'
         run: |
-          echo "🔍 Mounted Volumes:"
+          echo "🔍 Checking mounted volumes:"
           mount | grep /Volumes || true
-          echo "📦 DMG Devices:"
+
+          echo "📦 Checking DMG devices:"
           hdiutil info | grep /dev/ || true
-          echo "💥 Attempting to detach mounted DMG volumes (up to 3 attempts)"
+
+          echo "💥 Detaching DMG devices (max 3 attempts)"
           for i in 1 2 3; do
             for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
               echo "→ Detaching $dev"
@@ -75,34 +76,37 @@ jobs:
             done
             sleep 2
           done
-          echo "🗑️ Removing leftover DMGs and Finder metadata"
+
+          echo "🗑️ Deleting leftover DMGs and Finder junk"
           find build/_CPack_Packages -name '*.dmg' -delete || true
           find build/_CPack_Packages -name '.DS_Store' -delete || true
           find build/_CPack_Packages -name '._*' -delete || true
-          echo "🔒 Killing any processes holding files in build/"
+
+          echo "🔒 Killing processes holding files in build/"
           PIDS=$(lsof +D ./build | awk 'NR>1 {print $2}' | sort -u)
           for pid in $PIDS; do
             echo "→ Killing PID $pid"
             sudo kill -9 "$pid" || true
           done
-          echo "⏱️ Waiting 10s for cleanup to settle"
+
+          echo "⏱️ Sleep to let cleanup settle"
           sleep 10
-          
-      - name: Sleep before packaging (macOS-13 only)
+
+      - name: Delay before packaging (macOS-13)
         if: matrix.os == 'macos-13'
         run: sleep 15
 
-      - name: Create nightly release (with fallback retry)
+      - name: Build and package with retry fallback
         run: |
-          echo "🏗️ Attempting to build package"
+          echo "🏗️ Attempting CPack package build"
           cmake --build build --target package || (
-            echo "❗ Initial packaging failed. Retrying after clean..."
+            echo "❗ Initial CPack packaging failed. Retrying after clean..."
             sleep 5
-            find build/_CPack_Packages -type f -name "*.dmg" -delete || true
+            find build/_CPack_Packages -name '*.dmg' -delete || true
             cmake --build build --target package
           )
-          
-      - name: Upload artifacts
+
+      - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: ITGmania-${{ github.sha }}-${{ matrix.name }}-${{ matrix.arch }}
