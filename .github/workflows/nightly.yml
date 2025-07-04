@@ -3,9 +3,6 @@ on:
 
 name: Nightly release (macOS only)
 
-concurrency:
-  group: nightly-release-macos
-  cancel-in-progress: false
 
 jobs:
   build:
