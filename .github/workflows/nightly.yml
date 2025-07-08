@@ -62,53 +62,64 @@ jobs:
       - name: macOS-13 cleanup (detach DMGs, kill processes, delete temp files)
         if: matrix.os == 'macos-13'
         run: |
-          echo "🔍 Checking mounted volumes:"
-          mount | grep /Volumes || true
-
-          echo "📦 Checking DMG devices:"
-          hdiutil info | grep /dev/ || true
-
-          echo "💥 Detaching DMG devices (max 3 attempts)"
-          for i in 1 2 3; do
-            for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
-              echo "→ Detaching $dev"
-              hdiutil detach "$dev" -force || diskutil unmount force "$dev" || sudo umount -f "$dev" || true
-            done
-            sleep 2
+          for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
+            echo "Detaching $dev..."
+            hdiutil detach "$dev" -force || diskutil unmount force "$dev" || sudo umount -f "$dev" || true
           done
-
-          echo "🗑️ Deleting leftover DMGs and Finder junk"
+          sleep 5
           find build/_CPack_Packages -name '*.dmg' -delete || true
           find build/_CPack_Packages -name '.DS_Store' -delete || true
           find build/_CPack_Packages -name '._*' -delete || true
-
-          echo "🔒 Killing processes holding files in build/"
           PIDS=$(lsof +D ./build | awk 'NR>1 {print $2}' | sort -u)
           for pid in $PIDS; do
             echo "→ Killing PID $pid"
             sudo kill -9 "$pid" || true
           done
-
-          echo "⏱️ Sleep to let cleanup settle"
           sleep 10
 
-      - name: Delay before packaging (macOS-13)
-        if: matrix.os == 'macos-13'
-        run: sleep 15
+      - name: Build project (no packaging)
+        run: cmake --build build
 
-      - name: Build and package with retry fallback
+      - name: Manually create DMG with RAM disk and retry (macOS-13 only)
+        if: matrix.os == 'macos-13'
         run: |
-          echo "🏗️ Attempting CPack package build"
-          cmake --build build --target package || (
-            echo "❗ Initial CPack packaging failed. Retrying after clean..."
-            sleep 5
-            find build/_CPack_Packages -name '*.dmg' -delete || true
-            cmake --build build --target package
-          )
+          DMG_NAME="ITGmania-${{ github.sha }}-${{ matrix.arch }}.dmg"
+          VOL_NAME="ITGmania-${{ github.sha }}"
+          APP_PATH="build/ITGmania.app"
+          OUT_DIR="dmg_output"
+          mkdir -p "$OUT_DIR"
+
+          echo "Creating RAM disk..."
+          DISK_SIZE_MB=512
+          MOUNT_POINT="/Volumes/RAMDISK"
+          RAMDEV=$(hdiutil attach -nomount ram://$((DISK_SIZE_MB * 2048)))
+          diskutil erasevolume HFS+ RAMDISK "$RAMDEV"
+
+          echo "Copying .app into RAM disk..."
+          cp -R "$APP_PATH" "$MOUNT_POINT/"
+
+          echo "Attempting to create DMG from RAM disk..."
+          for i in 1 2 3; do
+            hdiutil create -ov -volname "$VOL_NAME" -fs HFS+ -format UDZO \
+              -srcfolder "$MOUNT_POINT" "$OUT_DIR/$DMG_NAME" && break
+            echo "❗ hdiutil failed (attempt $i). Retrying after cleanup..."
+            sleep $((5 * i))
+            pkill -9 hdiutil || true
+          done
+
+          echo "Unmounting RAM disk..."
+          hdiutil detach "$RAMDEV" -force || true
+
+      - name: Package normally via CPack (non-macOS-13)
+        if: matrix.os != 'macos-13'
+        run: |
+          cmake --build build --target package
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: ITGmania-${{ github.sha }}-${{ matrix.name }}-${{ matrix.arch }}
-          path: ${{ matrix.path }}
+          path: |
+            build/*.dmg
+            dmg_output/*.dmg
           compression-level: 0
