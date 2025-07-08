@@ -22,7 +22,7 @@ jobs:
             arch: x86_64
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
-            path: build/*.dmg
+            path: dmg_output/*.dmg
 
     name: ${{ matrix.name }}
 
@@ -83,22 +83,40 @@ jobs:
       - name: Manually create DMG with RAM disk and retry (macOS-13 only)
         if: matrix.os == 'macos-13'
         run: |
+          set -e
+
           DMG_NAME="ITGmania-${{ github.sha }}-${{ matrix.arch }}.dmg"
           VOL_NAME="ITGmania-${{ github.sha }}"
           APP_PATH="build/ITGmania.app"
           OUT_DIR="dmg_output"
+          MOUNT_POINT="/Volumes/RAMDISK"
           mkdir -p "$OUT_DIR"
 
           echo "Creating RAM disk..."
           DISK_SIZE_MB=512
-          MOUNT_POINT="/Volumes/RAMDISK"
-          RAMDEV=$(hdiutil attach -nomount ram://$((DISK_SIZE_MB * 2048)))
+          SECTORS=$((DISK_SIZE_MB * 2048))
+          RAMDEV=$(hdiutil attach -nomount ram://$SECTORS)
+
+          echo "RAMDEV: $RAMDEV"
+          sleep 2
+
+          if [ ! -e "$RAMDEV" ]; then
+            echo "❌ RAM disk device not found: $RAMDEV"
+            exit 1
+          fi
+
+          echo "Erasing and mounting RAM disk..."
           diskutil erasevolume HFS+ RAMDISK "$RAMDEV"
+
+          if [ ! -d "$MOUNT_POINT" ]; then
+            echo "❌ Failed to mount RAM disk at $MOUNT_POINT"
+            exit 1
+          fi
 
           echo "Copying .app into RAM disk..."
           cp -R "$APP_PATH" "$MOUNT_POINT/"
 
-          echo "Attempting to create DMG from RAM disk..."
+          echo "Creating DMG from RAM disk..."
           for i in 1 2 3; do
             hdiutil create -ov -volname "$VOL_NAME" -fs HFS+ -format UDZO \
               -srcfolder "$MOUNT_POINT" "$OUT_DIR/$DMG_NAME" && break
@@ -110,7 +128,7 @@ jobs:
           echo "Unmounting RAM disk..."
           hdiutil detach "$RAMDEV" -force || true
 
-      - name: Package normally via CPack (non-macOS-13)
+      - name: CPack packaging (macOS-latest only)
         if: matrix.os != 'macos-13'
         run: |
           cmake --build build --target package
