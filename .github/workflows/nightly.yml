@@ -28,20 +28,29 @@ jobs:
             release: |
               cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
               cmake --build build
-              cmake --install build --prefix build
+              cmake --install build --prefix build/ITGmania
               mkdir -p dmg_output
-              DMG_NAME="ITGmania-$(date +%Y%m%d)-NIGHTLY-git-${{ github.sha }}-macOS-Intel-no-songs.dmg"
-              VOL_NAME="ITGmania NIGHTLY"
-              APP_PATH="build/ITGmania.app"
+              DATE=$(date +%Y%m%d)
+              SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+              DMG_NAME="ITGmania-${DATE}-NIGHTLY-git-${SHA}-macOS-Intel-no-songs.dmg"
+              VOL_NAME="ITGmania ${DATE}-NIGHTLY-git-${SHA}"
+              APP_PATH="build/ITGmania/ITGmania.app"
               OUT_PATH="dmg_output/$DMG_NAME"
-              echo "Creating DMG from $APP_PATH to $OUT_PATH"
+
+              echo "🔍 Checking if .app exists at $APP_PATH"
+              ls -la "$APP_PATH" || { echo "🚨 .app missing"; exit 1; }
+
+              echo "📦 Creating DMG..."
               for i in 1 2 3; do
-                hdiutil create -volname "$VOL_NAME" -srcfolder "$APP_PATH" -fs HFS+ -format UDZO "$OUT_PATH" && break
+                hdiutil create -ov -volname "$VOL_NAME" -fs HFS+ -format UDZO \
+                  -srcfolder "$APP_PATH" "$OUT_PATH" && break
                 echo "❗ hdiutil failed (attempt $i), retrying..."
                 sleep $((5 * i))
                 pkill -9 hdiutil || true
               done
-              ls "$OUT_PATH"
+
+              echo "✅ DMG should now exist:"
+              ls -lh "$OUT_PATH"
             path: dmg_output/*.dmg
 
     name: ${{ matrix.name }}
