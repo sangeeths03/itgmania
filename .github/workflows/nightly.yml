@@ -1,7 +1,7 @@
 on:
-  workflow_dispatch:
+  workflow_dispatch
 
-name: Nightly release (macOS only)
+name: Original Nightly release
 
 jobs:
   build:
@@ -15,32 +15,37 @@ jobs:
             arch: arm64
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
-            path: build/*.dmg
+            release: |
+              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_CLUB_FANTASTIC=Off
+              cmake --build build --target package
+            path: build/ITGmania-*-NIGHTLY-git-*-macOS-M1-no-songs.dmg
 
           - os: macos-13
             name: macOS (Intel)
             arch: x86_64
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
-            path: dmg_output/*.dmg
+            release: |
+              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
+              cmake --build build --target package
+            path: build/ITGmania-*-NIGHTLY-git-*-macOS-Intel-no-songs.dmg
 
     name: ${{ matrix.name }}
 
     steps:
-      - name: Checkout with submodules
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Cache CMake build
+      - name: Cache CMake build directory
         uses: actions/cache@v4
         with:
           path: |
             build/*
             !${{ matrix.path }}
-          key: ${{ runner.os }}-${{ matrix.arch }}-cmake-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+          key: ${{ runner.os }}-${{ matrix.arch }}-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
           restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-cmake-
+            ${{ runner.os }}-${{ matrix.arch }}-cmake-build-
 
       - name: Install dependencies
         run: ${{ matrix.install }}
@@ -48,12 +53,15 @@ jobs:
       - name: Configure
         run: ${{ matrix.configure }}
 
+      # macOS-13 extra prep steps before release
       - name: Inject .metadata_never_index (prevent Spotlight indexing)
+        if: matrix.os == 'macos-13'
         run: |
           mkdir -p build/tmp_bundle/Contents
           touch build/tmp_bundle/.metadata_never_index || true
 
       - name: Disable Spotlight (best-effort)
+        if: matrix.os == 'macos-13'
         continue-on-error: true
         run: |
           sudo mdutil -i off / || true
@@ -76,58 +84,12 @@ jobs:
           done
           sleep 10
 
-      - name: Build project (no packaging)
-        run: cmake --build build
+      - name: Create nightly release
+        run: ${{ matrix.release }}
 
-      - name: Install .app bundle to build/ directory
-        if: matrix.os == 'macos-13'
-        run: |
-          echo "Installing app..."
-          cmake --install build --prefix build
-          echo "Installed contents:"
-          ls -la build/
-
-      - name: Manually create DMG on macOS-13
-        if: matrix.os == 'macos-13'
-        run: |
-          set -e
-          DMG_NAME="ITGmania-${{ github.sha }}-${{ matrix.arch }}.dmg"
-          VOL_NAME="ITGmania-${{ github.sha }}"
-          APP_PATH="build/ITGmania.app"
-          OUT_DIR="dmg_output"
-          mkdir -p "$OUT_DIR"
-
-          echo "Checking for .app at $APP_PATH"
-          ls -la "$APP_PATH" || { echo "❌ .app not found!"; exit 1; }
-
-          echo "Creating DMG..."
-          for i in 1 2 3; do
-            hdiutil create -ov -volname "$VOL_NAME" \
-              -fs HFS+ -format UDZO \
-              -srcfolder "$APP_PATH" \
-              "$OUT_DIR/$DMG_NAME" && break
-            echo "❗ hdiutil failed (attempt $i), retrying..."
-            sleep $((5 * i))
-            pkill -9 hdiutil || true
-          done
-
-          echo "Final DMG listing:"
-          ls -la "$OUT_DIR"
-
-      - name: CPack DMG (macOS-latest only)
-        if: matrix.os == 'macos-latest'
-        run: |
-          cmake --build build --target package
-          echo "Final build dir:"
-          ls -la build/
-
-      - name: Upload DMG artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ITGmania-${{ github.sha }}-${{ matrix.name }}-${{ matrix.arch }}
-          path: |
-            dmg_output/*.dmg
-            build/*.dmg
-            **/*.dmg
-          if-no-files-found: warn
+          path: ${{ matrix.path }}
           compression-level: 0
