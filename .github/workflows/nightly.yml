@@ -41,7 +41,6 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.arch }}-cmake-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.arch }}-cmake-
-
       - name: Install dependencies
         run: ${{ matrix.install }}
 
@@ -52,41 +51,29 @@ jobs:
         run: |
           mkdir -p build/tmp_bundle/Contents
           touch build/tmp_bundle/.metadata_never_index || true
-
       - name: Disable Spotlight (best-effort)
         continue-on-error: true
         run: |
           sudo mdutil -i off / || true
           sudo mdutil -E / || true
-
       - name: macOS-13 cleanup (detach DMGs, kill processes, delete temp files)
         if: matrix.os == 'macos-13'
         run: |
-          echo "🧹 Cleaning up old DMG devices..."
           for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
             echo "Detaching $dev..."
             hdiutil detach "$dev" -force || diskutil unmount force "$dev" || sudo umount -f "$dev" || true
           done
           sleep 5
-          echo "🧼 Deleting temp files..."
           find build/_CPack_Packages -name '*.dmg' -delete || true
           find build/_CPack_Packages -name '.DS_Store' -delete || true
           find build/_CPack_Packages -name '._*' -delete || true
-          echo "🔫 Killing processes holding build/"
           PIDS=$(lsof +D ./build | awk 'NR>1 {print $2}' | sort -u)
           for pid in $PIDS; do
             sudo kill -9 "$pid" || true
           done
           sleep 10
-
       - name: Build project (no packaging)
         run: cmake --build build
-
-      - name: Install app to build directory
-        if: matrix.os == 'macos-13'
-        run: |
-          echo "🔧 Installing .app bundle to build/ directory"
-          cmake --install build --prefix build
 
       - name: Manually create DMG on macOS-13
         if: matrix.os == 'macos-13'
@@ -97,9 +84,7 @@ jobs:
           APP_PATH="build/ITGmania.app"
           OUT_DIR="dmg_output"
           mkdir -p "$OUT_DIR"
-          echo "🔍 Checking if .app exists at $APP_PATH"
-          ls -la "$APP_PATH" || { echo "❌ .app not found!"; exit 1; }
-          echo "📦 Creating DMG manually..."
+          echo "Creating DMG manually..."
           for i in 1 2 3; do
             hdiutil create -ov -volname "$VOL_NAME" \
               -fs HFS+ -format UDZO \
@@ -109,14 +94,10 @@ jobs:
             sleep $((5 * i))
             pkill -9 hdiutil || true
           done
-          echo "📁 DMG directory listing:"
-          ls -la "$OUT_DIR"
-
       - name: CPack DMG (macOS-latest only)
         if: matrix.os == 'macos-latest'
         run: |
           cmake --build build --target package
-
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
