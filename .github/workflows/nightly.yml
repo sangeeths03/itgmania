@@ -25,10 +25,7 @@ jobs:
             arch: x86_64
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
-            release: |
-              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
-              cmake --build build --target package
-            path: build/ITGmania-*-NIGHTLY-git-*-macOS-Intel-no-songs.dmg
+            path: dmg_output/*.dmg
 
     name: ${{ matrix.name }}
 
@@ -53,21 +50,21 @@ jobs:
       - name: Configure
         run: ${{ matrix.configure }}
 
-      # macOS-13 extra prep steps before release
-      - name: Inject .metadata_never_index (prevent Spotlight indexing)
+      # macOS-13 specific pre-DMG steps
+      - name: Inject .metadata_never_index (macOS-13)
         if: matrix.os == 'macos-13'
         run: |
           mkdir -p build/tmp_bundle/Contents
           touch build/tmp_bundle/.metadata_never_index || true
 
-      - name: Disable Spotlight (best-effort)
+      - name: Disable Spotlight (macOS-13)
         if: matrix.os == 'macos-13'
         continue-on-error: true
         run: |
           sudo mdutil -i off / || true
           sudo mdutil -E / || true
 
-      - name: macOS-13 cleanup (detach DMGs, kill processes, delete temp files)
+      - name: Cleanup hdiutil/detach/CPack (macOS-13)
         if: matrix.os == 'macos-13'
         run: |
           for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
@@ -84,7 +81,38 @@ jobs:
           done
           sleep 10
 
-      - name: Create nightly release
+      - name: Build project
+        run: cmake --build build
+
+      # ✅ Manual DMG creation for macOS-13
+      - name: Install app bundle (macOS-13)
+        if: matrix.os == 'macos-13'
+        run: cmake --install build --prefix build
+
+      - name: Create DMG manually (macOS-13)
+        if: matrix.os == 'macos-13'
+        run: |
+          mkdir -p dmg_output
+          DMG_NAME="ITGmania-$(date +%Y%m%d)-NIGHTLY-git-${{ github.sha }}-macOS-Intel-no-songs.dmg"
+          VOL_NAME="ITGmania $(date +%Y%m%d)-NIGHTLY"
+          APP_PATH="build/ITGmania.app"
+          OUT_PATH="dmg_output/$DMG_NAME"
+
+          echo "Creating DMG from $APP_PATH to $OUT_PATH"
+          for i in 1 2 3; do
+            hdiutil create -ov -volname "$VOL_NAME" \
+              -fs HFS+ -format UDZO \
+              -srcfolder "$APP_PATH" \
+              "$OUT_PATH" && break
+            echo "❗ hdiutil failed (attempt $i), retrying..."
+            sleep $((5 * i))
+            pkill -9 hdiutil || true
+          done
+          ls -lh "$OUT_PATH"
+
+      # macOS-latest continues using CPack via matrix.release
+      - name: Create nightly release (macOS-latest)
+        if: matrix.os == 'macos-latest'
         run: ${{ matrix.release }}
 
       - name: Upload artifacts
