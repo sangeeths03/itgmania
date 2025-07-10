@@ -62,14 +62,17 @@ jobs:
       - name: macOS-13 cleanup (detach DMGs, kill processes, delete temp files)
         if: matrix.os == 'macos-13'
         run: |
+          echo "🧹 Cleaning up old DMG devices..."
           for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
             echo "Detaching $dev..."
             hdiutil detach "$dev" -force || diskutil unmount force "$dev" || sudo umount -f "$dev" || true
           done
           sleep 5
+          echo "🧼 Deleting temp files..."
           find build/_CPack_Packages -name '*.dmg' -delete || true
           find build/_CPack_Packages -name '.DS_Store' -delete || true
           find build/_CPack_Packages -name '._*' -delete || true
+          echo "🔫 Killing processes holding build/"
           PIDS=$(lsof +D ./build | awk 'NR>1 {print $2}' | sort -u)
           for pid in $PIDS; do
             sudo kill -9 "$pid" || true
@@ -83,13 +86,19 @@ jobs:
         if: matrix.os == 'macos-13'
         run: |
           set -e
-          DMG_NAME="ITGmania-${{ github.sha }}-${{ matrix.arch }}.dmg"
-          VOL_NAME="ITGmania-${{ github.sha }}"
           APP_PATH="build/ITGmania.app"
           OUT_DIR="dmg_output"
-          mkdir -p "$OUT_DIR"
+          DMG_NAME="ITGmania-${{ github.sha }}-${{ matrix.name }}-${{ matrix.arch }}.dmg"
+          VOL_NAME="ITGmania-${{ github.sha }}"
 
-          echo "Creating DMG manually..."
+          if [ ! -d "$APP_PATH" ]; then
+            echo "❌ Error: App bundle not found at $APP_PATH"
+            exit 1
+          fi
+
+          mkdir -p "$OUT_DIR"
+          echo "📦 Creating DMG at $OUT_DIR/$DMG_NAME"
+
           for i in 1 2 3; do
             hdiutil create -ov -volname "$VOL_NAME" \
               -fs HFS+ -format UDZO \
@@ -100,6 +109,11 @@ jobs:
             sleep $((5 * i))
             pkill -9 hdiutil || true
           done
+
+          if [ ! -f "$OUT_DIR/$DMG_NAME" ]; then
+            echo "❌ DMG creation failed after retries"
+            exit 1
+          fi
 
       - name: CPack DMG (macOS-latest only)
         if: matrix.os == 'macos-latest'
