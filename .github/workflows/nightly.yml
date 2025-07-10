@@ -82,6 +82,12 @@ jobs:
       - name: Build project (no packaging)
         run: cmake --build build
 
+      - name: Install app to build directory
+        if: matrix.os == 'macos-13'
+        run: |
+          echo "🔧 Installing .app bundle to build/ directory"
+          cmake --install build --prefix build
+
       - name: Manually create DMG on macOS-13
         if: matrix.os == 'macos-13'
         run: |
@@ -91,10 +97,10 @@ jobs:
           APP_PATH="build/ITGmania.app"
           OUT_DIR="dmg_output"
           mkdir -p "$OUT_DIR"
-      
+
           echo "🔍 Checking if .app exists at $APP_PATH"
           ls -la "$APP_PATH" || { echo "❌ .app not found!"; exit 1; }
-      
+
           echo "📦 Creating DMG manually..."
           for i in 1 2 3; do
             hdiutil create -ov -volname "$VOL_NAME" \
@@ -105,7 +111,7 @@ jobs:
             sleep $((5 * i))
             pkill -9 hdiutil || true
           done
-      
+
           echo "📁 DMG directory listing:"
           ls -la "$OUT_DIR"
 
