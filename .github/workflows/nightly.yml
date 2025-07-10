@@ -41,6 +41,7 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.arch }}-cmake-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.arch }}-cmake-
+
       - name: Install dependencies
         run: ${{ matrix.install }}
 
@@ -51,11 +52,13 @@ jobs:
         run: |
           mkdir -p build/tmp_bundle/Contents
           touch build/tmp_bundle/.metadata_never_index || true
+
       - name: Disable Spotlight (best-effort)
         continue-on-error: true
         run: |
           sudo mdutil -i off / || true
           sudo mdutil -E / || true
+
       - name: macOS-13 cleanup (detach DMGs, kill processes, delete temp files)
         if: matrix.os == 'macos-13'
         run: |
@@ -72,8 +75,17 @@ jobs:
             sudo kill -9 "$pid" || true
           done
           sleep 10
+
       - name: Build project (no packaging)
         run: cmake --build build
+
+      - name: Install .app bundle to build/ directory
+        if: matrix.os == 'macos-13'
+        run: |
+          echo "Installing app..."
+          cmake --install build --prefix build
+          echo "Installed contents:"
+          ls -la build/
 
       - name: Manually create DMG on macOS-13
         if: matrix.os == 'macos-13'
@@ -84,7 +96,11 @@ jobs:
           APP_PATH="build/ITGmania.app"
           OUT_DIR="dmg_output"
           mkdir -p "$OUT_DIR"
-          echo "Creating DMG manually..."
+
+          echo "Checking for .app at $APP_PATH"
+          ls -la "$APP_PATH" || { echo "❌ .app not found!"; exit 1; }
+
+          echo "Creating DMG..."
           for i in 1 2 3; do
             hdiutil create -ov -volname "$VOL_NAME" \
               -fs HFS+ -format UDZO \
@@ -94,15 +110,24 @@ jobs:
             sleep $((5 * i))
             pkill -9 hdiutil || true
           done
+
+          echo "Final DMG listing:"
+          ls -la "$OUT_DIR"
+
       - name: CPack DMG (macOS-latest only)
         if: matrix.os == 'macos-latest'
         run: |
           cmake --build build --target package
+          echo "Final build dir:"
+          ls -la build/
+
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: ITGmania-${{ github.sha }}-${{ matrix.name }}-${{ matrix.arch }}
           path: |
-            build/*.dmg
             dmg_output/*.dmg
+            build/*.dmg
+            **/*.dmg
+          if-no-files-found: warn
           compression-level: 0
