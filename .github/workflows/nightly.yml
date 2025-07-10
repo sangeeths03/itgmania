@@ -50,21 +50,21 @@ jobs:
       - name: Configure
         run: ${{ matrix.configure }}
 
-      # macOS-13 specific pre-DMG steps
-      - name: Inject .metadata_never_index (macOS-13)
+      # 🛑 Extra steps only for macOS-13
+      - name: Inject .metadata_never_index
         if: matrix.os == 'macos-13'
         run: |
           mkdir -p build/tmp_bundle/Contents
           touch build/tmp_bundle/.metadata_never_index || true
 
-      - name: Disable Spotlight (macOS-13)
+      - name: Disable Spotlight (best-effort)
         if: matrix.os == 'macos-13'
         continue-on-error: true
         run: |
           sudo mdutil -i off / || true
           sudo mdutil -E / || true
 
-      - name: Cleanup hdiutil/detach/CPack (macOS-13)
+      - name: macOS-13 cleanup
         if: matrix.os == 'macos-13'
         run: |
           for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
@@ -84,34 +84,36 @@ jobs:
       - name: Build project
         run: cmake --build build
 
-      # ✅ Manual DMG creation for macOS-13
-      - name: Install app bundle (macOS-13)
+      - name: Install app to build/ITGmania.app (macOS-13 only)
         if: matrix.os == 'macos-13'
         run: cmake --install build --prefix build
 
-      - name: Create DMG manually (macOS-13)
+      - name: Manually create DMG (macOS-13 only)
         if: matrix.os == 'macos-13'
         run: |
-          mkdir -p dmg_output
-          DMG_NAME="ITGmania-$(date +%Y%m%d)-NIGHTLY-git-${{ github.sha }}-macOS-Intel-no-songs.dmg"
-          VOL_NAME="ITGmania $(date +%Y%m%d)-NIGHTLY"
+          set -e
+          DATE=$(date +%Y%m%d)
+          SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+          DMG_NAME="ITGmania-${DATE}-NIGHTLY-git-${SHA}-macOS-Intel-no-songs.dmg"
+          VOL_NAME="ITGmania ${DATE}-NIGHTLY-git-${SHA}"
           APP_PATH="build/ITGmania.app"
           OUT_PATH="dmg_output/$DMG_NAME"
+          mkdir -p dmg_output
 
           echo "Creating DMG from $APP_PATH to $OUT_PATH"
           for i in 1 2 3; do
-            hdiutil create -ov -volname "$VOL_NAME" \
-              -fs HFS+ -format UDZO \
-              -srcfolder "$APP_PATH" \
-              "$OUT_PATH" && break
+            hdiutil create -ov -volname "$VOL_NAME" -fs HFS+ -format UDZO \
+              -srcfolder "$APP_PATH" "$OUT_PATH" && break
             echo "❗ hdiutil failed (attempt $i), retrying..."
             sleep $((5 * i))
             pkill -9 hdiutil || true
           done
+
+          echo "✅ DMG created:"
           ls -lh "$OUT_PATH"
 
-      # macOS-latest continues using CPack via matrix.release
-      - name: Create nightly release (macOS-latest)
+      # ✅ Use default release+package step for macOS-latest
+      - name: Create nightly release (macOS-latest only)
         if: matrix.os == 'macos-latest'
         run: ${{ matrix.release }}
 
