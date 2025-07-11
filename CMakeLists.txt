@@ -1,3 +1,8 @@
+# Install the ITGmania app bundle to the install prefix
+install(TARGETS ITGmania
+        BUNDLE
+        DESTINATION .)
+
 cmake_minimum_required(VERSION 3.20)
 
 project(StepMania)
