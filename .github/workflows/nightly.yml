@@ -29,6 +29,12 @@ jobs:
               cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
               cmake --build build
               cmake --install build
+
+              # ✅ VERIFY contents copied inside .app bundle
+              echo "🔍 Installed folders:"
+              find build/install -type d | grep -i itgmania.app || true
+              du -sh build/install/* || true
+
               mkdir -p dmg_output
               DATE=$(date +%Y%m%d)
               SHA=$(echo "${{ github.sha }}" | cut -c1-8)
@@ -36,8 +42,10 @@ jobs:
               VOL_NAME="ITGmania ${DATE}-NIGHTLY"
               APP_PATH=$(find build/install -name "ITGmania.app" -type d | head -n 1)
               OUT_PATH="dmg_output/$DMG_NAME"
+
               echo "🔍 Checking if .app exists at $APP_PATH"
               ls -la "$APP_PATH" || { echo "🚨 .app missing"; exit 1; }
+
               echo "📦 Creating DMG..."
               for i in 1 2 3; do
                 hdiutil create -ov -volname "$VOL_NAME" -fs HFS+ -format UDZO \
@@ -46,7 +54,8 @@ jobs:
                 sleep $((5 * i))
                 pkill -9 hdiutil || true
               done
-              echo "✅ DMG should now exist:"
+
+              echo "✅ DMG created:"
               ls -lh "$OUT_PATH"
             path: dmg_output/*.dmg
 
