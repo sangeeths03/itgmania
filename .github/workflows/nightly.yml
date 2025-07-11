@@ -24,20 +24,19 @@ jobs:
             name: macOS (Intel)
             arch: x86_64
             install: brew install nasm
-            configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
+            configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_INSTALL_PREFIX=build/ITGmania -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
             release: |
-              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
               cmake --build build
-              cmake --install build --prefix build/ITGmania
+              cmake --install build
               mkdir -p dmg_output
               DATE=$(date +%Y%m%d)
               SHA=$(echo "${{ github.sha }}" | cut -c1-8)
               DMG_NAME="ITGmania-${DATE}-NIGHTLY-git-${SHA}-macOS-Intel-no-songs.dmg"
               VOL_NAME="ITGmania ${DATE}-NIGHTLY-git-${SHA}"
-              APP_PATH=$(find build -name "ITGmania.app" -type d | head -n 1)
+              APP_PATH="build/ITGmania/ITGmania.app"
               OUT_PATH="dmg_output/$DMG_NAME"
 
-              echo "🔍 Found .app at $APP_PATH"
+              echo "🔍 Checking if .app exists at $APP_PATH"
               ls -la "$APP_PATH" || { echo "🚨 .app missing"; exit 1; }
 
               echo "📦 Creating DMG..."
