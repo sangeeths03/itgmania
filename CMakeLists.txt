@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(StepMania)
+project(StepMania VERSION 0.1.0)
 
 # Load project-specific config if needed
 include(StepmaniaCore.cmake)
@@ -27,7 +27,7 @@ target_link_libraries(ITGmania
     # Add other required libraries here
 )
 
-# 🔹 Optional: Set app bundle properties (Info.plist, icon, etc.)
+# 🔹 Set app bundle properties
 set_target_properties(ITGmania PROPERTIES
     MACOSX_BUNDLE_BUNDLE_NAME "ITGmania"
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.itgmania"
@@ -40,4 +40,20 @@ set_target_properties(ITGmania PROPERTIES
 install(TARGETS ITGmania
     BUNDLE
     DESTINATION .
+)
+
+# ✅ Also install essential runtime folders into the .app bundle
+# Adjust folder names if needed
+install(DIRECTORY
+    ${CMAKE_SOURCE_DIR}/Themes
+    ${CMAKE_SOURCE_DIR}/Scripts
+    ${CMAKE_SOURCE_DIR}/Announcers
+    ${CMAKE_SOURCE_DIR}/BackgroundEffects
+    ${CMAKE_SOURCE_DIR}/NoteSkins
+    ${CMAKE_SOURCE_DIR}/Characters
+    ${CMAKE_SOURCE_DIR}/Courses
+    ${CMAKE_SOURCE_DIR}/Data
+    ${CMAKE_SOURCE_DIR}/Metrics
+    ${CMAKE_SOURCE_DIR}/BGAnimations
+    DESTINATION ITGmania.app/Contents/Resources
 )
