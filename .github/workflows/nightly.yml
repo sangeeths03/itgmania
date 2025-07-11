@@ -24,16 +24,17 @@ jobs:
             name: macOS (Intel)
             arch: x86_64
             install: brew install nasm
-            configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_INSTALL_PREFIX=build/ITGmania -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
+            configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
             release: |
+              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
               cmake --build build
-              cmake --install build
+              cmake --install build --prefix build/ITGmania
               mkdir -p dmg_output
               DATE=$(date +%Y%m%d)
               SHA=$(echo "${{ github.sha }}" | cut -c1-8)
               DMG_NAME="ITGmania-${DATE}-NIGHTLY-git-${SHA}-macOS-Intel-no-songs.dmg"
               VOL_NAME="ITGmania ${DATE}-NIGHTLY-git-${SHA}"
-              APP_PATH="build/ITGmania/ITGmania.app"
+              APP_PATH=$(find build/ITGmania -name "ITGmania.app" -type d | head -n 1)
               OUT_PATH="dmg_output/$DMG_NAME"
 
               echo "🔍 Checking if .app exists at $APP_PATH"
@@ -75,7 +76,7 @@ jobs:
       - name: Configure
         run: ${{ matrix.configure }}
 
-      # 💡 macOS-13 specific cleanup
+      # macOS-13 cleanup and Spotlight indexing disable
       - name: Inject .metadata_never_index
         if: matrix.os == 'macos-13'
         run: |
