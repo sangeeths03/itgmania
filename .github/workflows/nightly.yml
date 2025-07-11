@@ -16,9 +16,7 @@ jobs:
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
             release: |
-              cmake -B build -DCMAKE_BUILD_TYPE=Release \
-                -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On \
-                -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_CLUB_FANTASTIC=Off
+              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_CLUB_FANTASTIC=Off
               cmake --build build --target package
             path: build/ITGmania-*-NIGHTLY-git-*-macOS-M1-no-songs.dmg
 
@@ -26,40 +24,29 @@ jobs:
             name: macOS (Intel)
             arch: x86_64
             install: brew install nasm
-            configure: cmake -B build \
-              -DCMAKE_OSX_ARCHITECTURES=x86_64 \
-              -DCMAKE_INSTALL_PREFIX=build/install \
-              -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
+            configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)" -DCMAKE_INSTALL_PREFIX=build/install
             release: |
-              cmake -B build -DCMAKE_BUILD_TYPE=Release \
-                -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On \
-                -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
+              cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
               cmake --build build
               cmake --install build
-
-              # 🧪 Debug .app contents
-              APP_PATH=$(find build/install -maxdepth 2 -type d -name "ITGmania.app" | head -n 1)
-              echo "🔍 App location: $APP_PATH"
-              du -sh "$APP_PATH" || true
-              find "$APP_PATH" -maxdepth 3 | head -30 || true
-
               mkdir -p dmg_output
               DATE=$(date +%Y%m%d)
               SHA=$(echo "${{ github.sha }}" | cut -c1-8)
               DMG_NAME="ITGmania-${DATE}-NIGHTLY-git-${SHA}-macOS-Intel-no-songs.dmg"
-              VOL_NAME="ITGmania ${DATE}-NIGHTLY-git-${SHA}"
+              VOL_NAME="ITGmania ${DATE}-NIGHTLY"
+              APP_PATH=$(find build/install -name "ITGmania.app" -type d | head -n 1)
               OUT_PATH="dmg_output/$DMG_NAME"
-
-              echo "📦 Packaging DMG..."
+              echo "🔍 Checking if .app exists at $APP_PATH"
+              ls -la "$APP_PATH" || { echo "🚨 .app missing"; exit 1; }
+              echo "📦 Creating DMG..."
               for i in 1 2 3; do
                 hdiutil create -ov -volname "$VOL_NAME" -fs HFS+ -format UDZO \
                   -srcfolder "$APP_PATH" "$OUT_PATH" && break
-                echo "❗ Attempt $i hdiutil failed, retry..."
+                echo "❗ hdiutil failed (attempt $i), retrying..."
                 sleep $((5 * i))
                 pkill -9 hdiutil || true
               done
-
-              echo "✅ DMG file:"
+              echo "✅ DMG should now exist:"
               ls -lh "$OUT_PATH"
             path: dmg_output/*.dmg
 
@@ -86,14 +73,13 @@ jobs:
       - name: Configure
         run: ${{ matrix.configure }}
 
-      # macOS-13: disable Spotlight & cleanup
-      - name: Inject .metadata_never_index
+      - name: Inject .metadata_never_index (macOS-13 only)
         if: matrix.os == 'macos-13'
         run: |
           mkdir -p build/tmp_bundle/Contents
           touch build/tmp_bundle/.metadata_never_index || true
 
-      - name: Disable Spotlight (best-effort)
+      - name: Disable Spotlight (macOS-13 only)
         if: matrix.os == 'macos-13'
         continue-on-error: true
         run: |
@@ -105,13 +91,16 @@ jobs:
         run: |
           for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
             echo "Detaching $dev..."
-            hdiutil detach "$dev" -force || diskutil unmount force "$dev" || true
+            hdiutil detach "$dev" -force || diskutil unmount force "$dev" || sudo umount -f "$dev" || true
           done
           sleep 5
           find build/_CPack_Packages -name '*.dmg' -delete || true
           find build/_CPack_Packages -name '.DS_Store' -delete || true
           find build/_CPack_Packages -name '._*' -delete || true
-          lsof +D ./build | awk 'NR>1 {print $2}' | xargs -r sudo kill -9
+          PIDS=$(lsof +D ./build | awk 'NR>1 {print $2}' | sort -u)
+          for pid in $PIDS; do
+            sudo kill -9 "$pid" || true
+          done
           sleep 10
 
       - name: Create nightly release
