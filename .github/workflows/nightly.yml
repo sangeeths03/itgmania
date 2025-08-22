@@ -1,7 +1,7 @@
 on:
   workflow_dispatch
 
-name: Nightly release
+name: Debug macOS Packaging (Intel + M1)
 
 jobs:
   build:
@@ -16,106 +16,50 @@ jobs:
             install: brew install nasm
             configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
             release: |
+              echo "🔨 Starting release build for macOS ARM64 (M1)..."
               cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=arm64 -DWITH_CLUB_FANTASTIC=Off
-              cmake --build build --target package
+              cmake --build build --target package -- -v
             path: build/ITGmania-*-NIGHTLY-git-*-macOS-M1-no-songs.dmg
-
           - os: macos-13
             name: macOS (Intel)
             arch: x86_64
             install: brew install nasm
-            configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)" -DCMAKE_INSTALL_PREFIX=build/install
+            configure: cmake -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_FFMPEG_JOBS="$(sysctl -n hw.logicalcpu)"
             release: |
+              echo "🔨 Starting release build for macOS Intel..."
               cmake -B build -DCMAKE_BUILD_TYPE=Release -DWITH_FULL_RELEASE=Off -DWITH_NIGHTLY_RELEASE=On -DCMAKE_OSX_ARCHITECTURES=x86_64 -DWITH_CLUB_FANTASTIC=Off
-              cmake --build build
-              cmake --install build
-
-              # ✅ VERIFY contents copied inside .app bundle
-              echo "🔍 Installed folders:"
-              find build/install -type d | grep -i itgmania.app || true
-              du -sh build/install/* || true
-
-              mkdir -p dmg_output
-              DATE=$(date +%Y%m%d)
-              SHA=$(echo "${{ github.sha }}" | cut -c1-8)
-              DMG_NAME="ITGmania-${DATE}-NIGHTLY-git-${SHA}-macOS-Intel-no-songs.dmg"
-              VOL_NAME="ITGmania ${DATE}-NIGHTLY"
-              APP_PATH=$(find build/install -name "ITGmania.app" -type d | head -n 1)
-              OUT_PATH="dmg_output/$DMG_NAME"
-
-              echo "🔍 Checking if .app exists at $APP_PATH"
-              ls -la "$APP_PATH" || { echo "🚨 .app missing"; exit 1; }
-
-              echo "📦 Creating DMG..."
-              for i in 1 2 3; do
-                hdiutil create -ov -volname "$VOL_NAME" -fs HFS+ -format UDZO \
-                  -srcfolder "$APP_PATH" "$OUT_PATH" && break
-                echo "❗ hdiutil failed (attempt $i), retrying..."
-                sleep $((5 * i))
-                pkill -9 hdiutil || true
-              done
-
-              echo "✅ DMG created:"
-              ls -lh "$OUT_PATH"
-            path: dmg_output/*.dmg
+              cmake --build build --target package -- -v
+            path: build/ITGmania-*-NIGHTLY-git-*-macOS-Intel-no-songs.dmg
 
     name: ${{ matrix.name }}
-
     steps:
-      - uses: actions/checkout@v4
+      - name: 📥 Checkout repository with submodules
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Cache CMake build directory
-        uses: actions/cache@v4
-        with:
-          path: |
-            build/*
-            !${{ matrix.path }}
-          key: ${{ runner.os }}-${{ matrix.arch }}-cmake-build-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.arch }}-cmake-build-
-
-      - name: Install dependencies
+      - name: 📦 Install dependencies
         run: ${{ matrix.install }}
 
-      - name: Configure
+      - name: ⚙️ Configure project for ${{ matrix.arch }}
         run: ${{ matrix.configure }}
 
-      - name: Inject .metadata_never_index (macOS-13 only)
+      - name: 🧹 macOS-13 pre-cleanup (detach stale volumes)
         if: matrix.os == 'macos-13'
         run: |
-          mkdir -p build/tmp_bundle/Contents
-          touch build/tmp_bundle/.metadata_never_index || true
-
-      - name: Disable Spotlight (macOS-13 only)
-        if: matrix.os == 'macos-13'
-        continue-on-error: true
-        run: |
-          sudo mdutil -i off / || true
-          sudo mdutil -E / || true
-
-      - name: macOS-13 cleanup
-        if: matrix.os == 'macos-13'
-        run: |
-          for dev in $(hdiutil info | grep '^/dev/' | awk '{print $1}'); do
-            echo "Detaching $dev..."
-            hdiutil detach "$dev" -force || diskutil unmount force "$dev" || sudo umount -f "$dev" || true
+          echo "🔧 Cleaning up any stale mounted volumes..."
+          MOUNTED=$(hdiutil info | grep /Volumes | awk '{$1=$1};1' | cut -f1)
+          for VOL in $MOUNTED; do
+            echo "⏏️ Attempting to detach: $VOL"
+            hdiutil detach "$VOL" || true
           done
-          sleep 5
-          find build/_CPack_Packages -name '*.dmg' -delete || true
-          find build/_CPack_Packages -name '.DS_Store' -delete || true
-          find build/_CPack_Packages -name '._*' -delete || true
-          PIDS=$(lsof +D ./build | awk 'NR>1 {print $2}' | sort -u)
-          for pid in $PIDS; do
-            sudo kill -9 "$pid" || true
-          done
-          sleep 10
-
-      - name: Create nightly release
+          echo "🧽 Removing any leftover temp.dmg..."
+          find build -name "temp.dmg" -delete || true
+          echo "✅ Cleanup complete."
+      - name: 🚀 Build and package nightly release
         run: ${{ matrix.release }}
 
-      - name: Upload artifacts
+      - name: 📤 Upload packaged build
         uses: actions/upload-artifact@v4
         with:
           name: ITGmania-${{ github.sha }}-${{ matrix.name }}-${{ matrix.arch }}
